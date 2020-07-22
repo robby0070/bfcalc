@@ -1,7 +1,9 @@
 from appJar import gui
 from datetime import datetime, date
-from os import path
+
+import os 
 import json
+
 
 measurements = {"peso": 0, "bicipite": 0, "tricipite": 0, "pettorale": 0, \
 	"scapola": 0, "addome": 0, "ileo": 0, "coscia": 0, "ginocchio": 0, }
@@ -78,7 +80,7 @@ def load () :
 def save () :
 	calcValues()
 	to_dump = {} 
-	if path.isfile(currentfile) :
+	if os.path.isfile(currentfile) :
 		with open(currentfile, "r") as file:
 			to_dump = json.load(file)
 	to_dump["nome"]  = app.getEntry("entry-name")
@@ -108,39 +110,61 @@ def changesex(radio) :
 	else :
 		app.disableEntry("num-pettorale")
 
-with gui("developing") as app : 
-	app.setBg("white" )
-	with app.labelFrame("Anagrafe", colspan=2) :
-		app.setFont(20)
-
-		tools = ["SAVE", "SAVE AS", "OPEN"]
-		app.addToolbar(tools, toolbar, findIcon=True)
-		app.setToolbarImage("SAVE", "img/save.png")
-		app.setToolbarImage("SAVE AS", "img/saveas.png")
-		app.setToolbarImage("OPEN", "img/open.png")
-
-		app.addLabel("label-name", "Nome")
-		app.addEntry("entry-name", 0, 1)
-		app.addDatePicker("date-birth", 0, 2, rowspan=3)
-		app.setDatePickerRange("date-birth", 1950)
-
-		with app.labelFrame("Sesso", colspan=2) :
-			app.addRadioButton("radio-sex", "Maschio", 0, 0)
-			app.addRadioButton("radio-sex", "Femmina", 0, 1)
-			app.setRadioButtonChangeFunction("radio-sex", changesex)
-
-	with app.labelFrame("Misure") :
-		i = 0
-		for measure in measurements :
-			app.addLabel("label-" + measure, measure.capitalize(), i, 0)
+def printMeasurements(input, i) :
+	for measure in measurements :
+		app.addLabel("label-" + measure, measure.capitalize(), i, 0)
+		if input :
 			app.addNumericEntry("num-" + measure, i, 1)
-			i += 1
+		else :
+			app.addLabel("label-" + measure +"-value", "eskere", i, 1)
+			app.setLabelRelief("label-" + measure + "-value", "sunken")
+		i += 1
 
-	with app.labelFrame("Risultati", app.gr() - 1, 1) :
-		for result in results :
-			app.addLabel("label-" + result, result.capitalize(), i, 0)
-			app.addLabel("label-" + result + "-value", "	", i, 1)
-			app.setLabelBg("label-" + result + "-value", "white")
-			app.setLabelRelief("label-" + result + "-value", "sunken")
-			i += 1
-	app.addButtons(["Conferma", "Cancella"], submit, colspan=2)
+
+
+
+
+def launch(win):
+    app.showSubWindow(win)
+
+with gui("developing", "1200x600") as app : 
+	app.setFont(20)
+	app.setSticky("new")
+	app.setExpand("both")
+
+	tools = ["SAVE", "SAVE AS", "OPEN"]
+	app.addToolbar(tools, toolbar, findIcon=True)
+	app.setToolbarImage("SAVE", "img/save.png")
+	app.setToolbarImage("SAVE AS", "img/saveas.png")
+	app.setToolbarImage("OPEN", "img/open.png")
+
+	with app.panedFrame("clienti") :
+		app.addListBox("clientList", ["Roberto Bertelli", "Luca Bertelli"])
+		for i in range(0, 100) :
+			app.addListItem("clientList", i)
+
+
+		with app.panedFrame("anagrafe") :
+			app.addEntry("entry-name")
+			app.addLabelOptionBox("", ["M", "F"], 0, 1)
+			app.addDatePicker("date-birth")
+			app.setDatePickerRange("date-birth", 1950)
+			app.addListBox("prova-prova", ["prova", "eskere"])
+			with app.panedFrame("misura") :
+				app.addLabel("eskere", "eskere")
+				i = 0
+				for result in results :
+					app.addLabel("label-" + result, result.capitalize(), i, 0)
+					app.addLabel("label-" + result + "-value", "	", i, 1)
+					app.setLabelBg("label-" + result + "-value", "white")
+					app.setLabelRelief("label-" + result + "-value", "sunken")
+				# app.addPieChart("asdfasdf", {"apples":50, "oranges":200, "grapes":75, 
+						# "beef":300, "turkey":150}, 0, 2)
+					i += 1
+				printMeasurements(False, i)
+
+				
+	with app.subWindow("one") :
+		# with app.labelFrame("Misure") :
+			# printMeasurements(True)
+		app.addButtons(["Conferma", "Cancella"], submit, colspan=2)

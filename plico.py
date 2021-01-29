@@ -1,17 +1,40 @@
 from appJar import gui
 from datetime import datetime, date
+from sortedcontainers import SortedDict
+import numpy as np
+import random
 
 import os 
 import json
+    
+measurements = [
+	"peso",
+	"bicipite",
+	"tricipite",
+	"pettorale",
+	"scapola",
+	"addome",
+	"ileo",
+	"coscia",
+	"ginocchio",
+]
 
+results = [
+	"P6",
+	"PU",
+	"Pollock",
+	"BM",
+	"BM%",
+	"BF",
+	"BF%",
+]
 
-measurements = {"peso": 0, "bicipite": 0, "tricipite": 0, "pettorale": 0, \
-	"scapola": 0, "addome": 0, "ileo": 0, "coscia": 0, "ginocchio": 0, }
+clients = SortedDict()
+currentClient = ""
+currentDate = ""
+dateFormat = "%Y-%m-%d"
 
-results = { "p6" : 0, "pu" : 0, "pollock" : 0, "BM" : 0, "BM%" : 0, \
-	"BF" : 0, "BF%" : 0, }
-
-currentfile = ""
+disableChangeDate = False
 
 def findValue (filename, value, age) :
 	with open(filename, 'r') as file :
@@ -22,149 +45,282 @@ def findValue (filename, value, age) :
 				return float(values[age - 5])
 	return 0
 
-def calcValues() :
-	## getting entries ##	
-	for measure in measurements:
-		value = app.getEntry("num-" + measure)
-		measurements[measure] = value if value != None else 0
-	sex = app.getRadioButton("radio-sex")
+def calcValues(date) :
+	## getting entries ##
+	CM = clients[currentClient]["measurements"][date.strftime(dateFormat)]
+
 	filename = "tables/"
-	filename += "maschi_" if sex == "Maschio" else "femmine_"
+	filename += "maschi_" if clients[currentClient]["sex"] == "M" else "femmine_"
 
 	## calculating age ##
-	birth = app.getDatePicker("date-birth")
-	today = date.today()
-	age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+	birth = datetime.strptime(clients[currentClient]["date-birth"], dateFormat)
+	age = date.year - birth.year - ((date.month, date.day) < (birth.month, birth.day))
 
 	## calculationg pu and p6 values ##
-	pu = measurements["ileo"]
-	media_icg = (measurements["ileo"] + measurements["coscia"] + measurements["ginocchio"]) / 3.
-	p6 = measurements["bicipite"] + measurements["tricipite"] + measurements["scapola"] + media_icg
-	results["pu"]= findValue(filename + "pu.csv", pu, age)
-	results["p6"] = findValue(filename + "p6.csv", p6, age)
+	pu = CM["data"]["ileo"]
+	media_icg = (CM["data"]["ileo"] + CM["data"]["coscia"] + CM["data"]["ginocchio"]) / 3.
+	p6 = CM["data"]["bicipite"] + CM["data"]["tricipite"] + CM["data"]["scapola"] + media_icg
+	CM["results"]["PU"]= findValue(filename + "pu.csv", pu, age)
+	CM["results"]["P6"] = findValue(filename + "p6.csv", p6, age)
 
 	## calculating pollock ##
-	if sex == "Maschio" :
-		pollock_sum = measurements["pettorale"] + measurements["addome"] + measurements["coscia"]
-		results["pollock"] = 495 / (1.1093800 - 0.0008267 * pollock_sum + \
+	if clients[currentClient]["sex"] == "M" :
+		pollock_sum = CM["data"]["pettorale"] + CM["data"]["addome"] + CM["data"]["coscia"]
+		CM["results"]["Pollock"] = 495 / (1.1093800 - 0.0008267 * pollock_sum + \
 			0.0000016 * pollock_sum * pollock_sum - 0.0002574 * age) - 450
 	else :
-		pollock_sum = measurements["addome"] + measurements["ileo"] + measurements["tricipite"]
-		results["pollock"] = 495 / (1.0902369 - 0.0009379 * pollock_sum + \
+		pollock_sum = CM["data"]["addome"] + CM["data"]["ileo"] + CM["data"]["tricipite"]
+		CM["results"]["Pollock"] = 495 / (1.0902369 - 0.0009379 * pollock_sum + \
 			0.0000026 * pollock_sum * pollock_sum - 0.00000979 * age) - 450
 	
 	## caclulating BF and BM ##	
-	results["BF%"] = (results["pu"] + results["p6"] + results["pollock"]) / 3.
-	results["BM%"] = 100 - results["BF%"]
-	results["BF"] = measurements["peso"] / 100 * results["BF%"]
-	results["BM"] = measurements["peso"] / 100 * results["BM%"]
-
-	## setting value ##
-	for result in results :
-		app.setLabel("label-" + result + "-value", "{:5.2f}".format(results[result]))
-
-def submit (button) :
-	if button == "Cancella":
-		app.stop()
-	else :
-		calcValues()
+	CM["results"]["BF%"] = (CM["results"]["PU"] + CM["results"]["P6"] + CM["results"]["Pollock"]) / 3.
+	CM["results"]["BM%"] = 100 - CM["results"]["BF%"]
+	CM["results"]["BF"] = CM["data"]["peso"] / 100 * CM["results"]["BF%"]
+	CM["results"]["BM"] = CM["data"]["peso"] / 100 * CM["results"]["BM%"]
 	
+	for i, value in CM["results"].items() :
+		CM["results"][i] = round(value, 2)
 
-def load () :
-	with open(currentfile, "r") as file:
-		data = json.load(file)
-		app.setEntry("entry-name", data["nome"])
-		app.setDatePicker("date-birth", datetime.strptime(data["nascita"], "%d-%m-%Y"))
-		app.setRadioButton("radio-sex", data["sesso"])
+def updateMeasurements() :
+	app.clearListBox("listbox-clients", False)
+	for client in clients :
+		app.addListItem("listbox-clients", client)
 
-def save () :
-	calcValues()
-	to_dump = {} 
-	if os.path.isfile(currentfile) :
-		with open(currentfile, "r") as file:
-			to_dump = json.load(file)
-	to_dump["nome"]  = app.getEntry("entry-name")
-	to_dump["nascita"] = app.getDatePicker("date-birth").strftime("%d-%m-%Y")
-	to_dump["sesso"] = app.getRadioButton("radio-sex")
+def updateMeasurements() :
+	app.clearListBox("listbox-measurements", False)
+	for date in clients[currentClient]["measurements"] :
+		app.addListItem("listbox-measurements", date)
 
-	with open(currentfile, "w") as file :
-		to_dump[str(date.today())] = { "misure" : measurements, "risultati" : results } 
-		json.dump(to_dump, file, indent=4)
+def updateResults() :
+	for r in results :
+		app.setLabel("label-" + r + "-value", \
+			clients[currentClient]["measurements"][currentDate]["results"][r])
+
+def save(path) :
+	with open(path, "w") as file :
+		json.dump(clients, file, indent=4)
 
 def toolbar(tool) :
-	global currentfile
 	if "SAVE" in tool :
-		if (not currentfile) or (tool == "SAVE AS") :
-			currentfile = app.saveBox(fileTypes=[("json", "*.json")], fileExt=".json", asFile=False)
-		if currentfile :
-			save()
+		save("clients.json")
+	elif tool == "GRAPH" :
+		with app.subWindow("subwindow-graph") :
+			fig.clf()
+			plt = fig.add_subplot(111)
+			plt.plot(getDates(), getPlots()["BF%"])
+			plt.plot(getDates(), getPlots()["peso"])
+			plt.plot(getDates(), getPlots()["BM"])
+			plt.set_title(currentClient)
+			plt.set_ylabel('percentuale')
+			app.refreshPlot("fig1")
+		app.showSubWindow("subwindow-graph")
 
-	elif tool == "OPEN" :
-		currentfile = app.openBox(fileTypes=[("json", "*.json")], multiple=False, mode='r')
-		if currentfile :
-			load()
+def updateClients() :
+	app.clearListBox("listbox-clients", False)
+	for client in clients :
+			app.addListItem("listbox-clients", client)
 
-def changesex(radio) :
-	if app.getRadioButton("radio-sex") == "Maschio":
-		app.enableEntry("num-pettorale")
-	else :
-		app.disableEntry("num-pettorale")
+def load(filename) :
+	global clients
+	global currentClient
+	with open(filename, "r") as file :
+		clients = json.load(file, object_pairs_hook=SortedDict)
+	currentClient = list(clients.keys())[0]
+	
+def selectClient() :
+	global currentClient
+	global disableChangeDate
+	selected = app.getListBox("listbox-clients")
+	if selected == [] : 
+		return False
+	currentClient = selected[0]
+	app.setEntry("entry-name", currentClient, False)
+	disableChangeDate = True
+	app.setOptionBox("optionbox-sex", clients[currentClient]["sex"])
+	birth_date = datetime.strptime(clients[currentClient]["date-birth"], dateFormat)
+	app.setDatePicker("datepicker-birth", birth_date)
+	disableChangeDate = False
+	updateMeasurements()
+	return True
 
-def printMeasurements(input, i) :
-	for measure in measurements :
-		app.addLabel("label-" + measure, measure.capitalize(), i, 0)
-		if input :
-			app.addNumericEntry("num-" + measure, i, 1)
-		else :
-			app.addLabel("label-" + measure +"-value", "eskere", i, 1)
-			app.setLabelRelief("label-" + measure + "-value", "sunken")
+def selectMeasurement() :
+	global currentDate
+	selected = app.getListBox("listbox-measurements")
+	if selected == [] :
+		return False
+	currentDate = selected[0]
+
+	for m in measurements:
+		app.setEntry("numeric-" + m + "-input", \
+			clients[currentClient]["measurements"][currentDate]["data"][m], False)
+	updateResults()	
+
+def newClient() :
+	global clients
+	global currentClient 
+	prefix, i = "client", 0
+	while True: 
+		client = prefix + str(i)
 		i += 1
+		if not client in clients :
+			break
+
+	clients[client] = {
+		"date-birth": "2000-01-01",
+		"measurements": SortedDict(),
+		"sex": "M",
+	}
+	currentClient = client
+	updateClients()
+	app.selectListItem("listbox-clients", currentClient)
+
+def delClient() :
+	clients.pop(currentClient)
+	updateClients()
+
+def newMeasurement() :
+	global clients
+	global currentDate
+	d = date.today()
+	currentDate = d.strftime(dateFormat)
+	clients[currentClient]["measurements"][currentDate] = \
+		{
+			"data" : SortedDict((key, 0) for key in measurements),
+			"results" : SortedDict((key, 0) for key in results) 
+		}
+	updateMeasurements()
+	app.selectListItem("listbox-measurements", currentDate)
+
+def delMeasurement() :
+	clients[currentClient]["measurements"].pop(app.getListBox("listbox-measurements")[0])
+	updateMeasurements()
+
+def changeName() :
+	global currentClient
+	name = app.getEntry("entry-name")
+	clients[name] = clients.pop(currentClient)
+	app.setListItem("listbox-clients", currentClient, name)
+	currentClient = name 
+	updateClients()
+
+def changeSex() :
+	global clients
+	if disableChangeDate :
+		return False
+
+	clients[currentClient]["sex"] = \
+	app.getOptionBox("optionbox-sex")
+	for measurement in clients[currentClient]["measurements"] :
+		calcValues(datetime.strptime(measurement, dateFormat))
+	updateResults()
+	return True
 
 
+def changeDate() :
+	global currentDate
+	newDate = app.getDatePicker("datepicker-measurement")
+	newStringDate = newDate.strftime(dateFormat)
+	clients[currentClient]["measurements"][newStringDate] = \
+		clients[currentClient]["measurements"].pop(currentDate)
+	app.setListItem("listbox-measurements", currentDate, newStringDate)
+	calcValues(newDate)
+	currentDate = newStringDate 
+	updateResults()
 
+def changeBirth() :
+	global clients
+	if disableChangeDate :
+		return False
 
+	clients[currentClient]["date-birth"] = \
+		app.getDatePicker("datepicker-birth").strftime(dateFormat)
+	for measurement in clients[currentClient]["measurements"] :
+		calcValues(datetime.strptime(measurement, dateFormat))
+	updateResults()
+	return True
 
-def launch(win):
-    app.showSubWindow(win)
+def updateValue(name) :
+	clients[currentClient]["measurements"][currentDate]["data"][name.split('-')[1]] = \
+		app.getEntry(name) if app.getEntry(name) != None else 0
+	calcValues(datetime.strptime(currentDate, dateFormat))
+	updateResults()
 
-with gui("developing", "1200x600") as app : 
-	app.setFont(20)
-	app.setSticky("new")
-	app.setExpand("both")
-
-	tools = ["SAVE", "SAVE AS", "OPEN"]
+with gui("developing", "1200x600", stretch='both', sticky='news', font=18) as app :
+	load("clients.json")
+	tools = ["SAVE", "GRAPH"]
 	app.addToolbar(tools, toolbar, findIcon=True)
 	app.setToolbarImage("SAVE", "img/save.png")
-	app.setToolbarImage("SAVE AS", "img/saveas.png")
-	app.setToolbarImage("OPEN", "img/open.png")
+	app.setToolbarImage("GRAPH", "img/graph.gif")
 
-	with app.panedFrame("clienti") :
-		app.addListBox("clientList", ["Roberto Bertelli", "Luca Bertelli"])
-		for i in range(0, 100) :
-			app.addListItem("clientList", i)
 
+	with app.panedFrame("clients") :
+		app.setSticky('news')
+		app.addListBox("listbox-clients", colspan=2)
+		app.setStretch('column')
+		app.addNamedButton("+", "button-clients-plus", newClient)
+		app.addNamedButton("-", "button-clients-minus", delClient, app.gr() - 1, 1)
 
 		with app.panedFrame("anagrafe") :
+			app.setStretch('column')
+			app.setSticky("nwe")
 			app.addEntry("entry-name")
-			app.addLabelOptionBox("", ["M", "F"], 0, 1)
-			app.addDatePicker("date-birth")
-			app.setDatePickerRange("date-birth", 1950)
-			app.addListBox("prova-prova", ["prova", "eskere"])
-			with app.panedFrame("misura") :
-				app.addLabel("eskere", "eskere")
-				i = 0
-				for result in results :
-					app.addLabel("label-" + result, result.capitalize(), i, 0)
-					app.addLabel("label-" + result + "-value", "	", i, 1)
-					app.setLabelBg("label-" + result + "-value", "white")
-					app.setLabelRelief("label-" + result + "-value", "sunken")
-				# app.addPieChart("asdfasdf", {"apples":50, "oranges":200, "grapes":75, 
-						# "beef":300, "turkey":150}, 0, 2)
-					i += 1
-				printMeasurements(False, i)
+			app.setSticky("ne")
+			app.setEntryChangeFunction("entry-name", changeName)
+			app.setSticky("nw")
+			app.optionBox("optionbox-sex", ["M", "F"], 0, 1)
+			app.setOptionBoxChangeFunction("optionbox-sex", changeSex)
+			app.addDatePicker("datepicker-birth", colspan=2)
+			app.setDatePickerRange("datepicker-birth", 1950)
+			app.setDatePickerChangeFunction("datepicker-birth", changeBirth)
 
-				
-	with app.subWindow("one") :
-		# with app.labelFrame("Misure") :
-			# printMeasurements(True)
-		app.addButtons(["Conferma", "Cancella"], submit, colspan=2)
+			app.setSticky('news')
+			app.setStretch('row')
+			app.addListBox("listbox-measurements", colspan=2)
+			app.setStretch('column')
+			app.addNamedButton("+", "button-measurements-plus", newMeasurement)
+			app.addNamedButton("-", "button-measurements-minus", delMeasurement, app.gr() - 1, 1)
+
+			with app.panedFrame("subwindow-measurements", vertical=True) :
+				app.setSticky("ew")
+				app.setStretch("column")
+				app.addDatePicker("datepicker-measurement")
+				app.setDatePickerRange("datepicker-measurement", 1990)
+				app.setDatePicker("datepicker-measurement", date.today())
+				app.setDatePickerChangeFunction("datepicker-measurement", changeDate)
+				with app.panedFrame("measurements") :
+					app.setSticky("w")
+					i = 0
+					for measurement in measurements :
+						app.addLabel("label-" + measurement + "-input", measurement.capitalize(), i, 0)
+						app.addNumericEntry("numeric-" + measurement + "-input", i, 1)
+						app.setEntryChangeFunction("numeric-" + measurement + "-input", updateValue)
+						i += 1
+					with app.panedFrame("results") :
+						app.setSticky("w")
+						i = 0
+						for r in results :
+							app.addLabel("label-" + r, r, i, 0)
+							app.addLabel("label-" + r + "-value", "	", i, 1)
+							app.setLabelBg("label-" + r + "-value", "white")
+							app.setLabelRelief("label-" + r + "-value", "sunken")
+							i += 1
+
+			app.setPaneSashPosition(10, "clients")
+			app.setListBoxSubmitFunction("listbox-clients", selectClient)
+			app.setListBoxSubmitFunction("listbox-measurements", selectMeasurement)
+		updateClients()
+		updateMeasurements()
+
+	with app.subWindow("subwindow-graph") :
+		def getDates() :
+			return [ i for i in clients[currentClient]["measurements"] ]
+
+		def getPlots() :
+			c = clients[currentClient]["measurements"]
+			return {
+				"BF%" : [ i["results"]["BF%"] for i in c.values() ],
+				"BM" : [ i["results"]["BM"] for i in c.values() ],
+				"peso" : [ i["data"]["peso"] for i in c.values() ],
+			}
+		fig = app.addPlotFig("fig1")

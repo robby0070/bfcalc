@@ -6,4 +6,5 @@ a simple python program that calates your body fat using 3 different formulas
 
 ```
 pip install appJar
+pip install sortedcontainers
 ```
